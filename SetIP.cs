@@ -199,11 +199,11 @@ namespace SetIP
             //DataTable dt = msConn.GetSchema("Tables");
             return dt;
         }
-        public async void SetNewIP()
+        public void SetNewIP()
         {
-            await sw.WriteLineAsync(DateTime.Now.ToLocalTime().ToString());
-            await sw.WriteLineAsync("From: " + cfgFile);
-            await sw.WriteLineAsync("IP: " + ipEntry[oldIP]);
+            sw.WriteLine(DateTime.Now.ToLocalTime().ToString());
+            sw.WriteLine("From: " + cfgFile);
+            sw.WriteLine("IP: " + ipEntry[oldIP]);
             try
             {
                 ManagementBaseObject mboIn = null;
@@ -220,21 +220,21 @@ namespace SetIP
                     mboOut = mo.InvokeMethod("EnableStatic", mboIn, null);
                     if (mboOut["ReturnValue"].ToString() != "0" && mboOut["ReturnValue"].ToString() != "1")
                         isRenew = false;
-                    await sw.WriteLineAsync("IP/Mask:\t" + ipEntry[ipAddr] + "/" + ipEntry[subMask] + "\tReturn:\t" + mboOut["ReturnValue"]);
+                    sw.WriteLine("IP/Mask:\t" + ipEntry[ipAddr] + "/" + ipEntry[subMask] + "\tReturn:\t" + mboOut["ReturnValue"]);
                     //Set Gateway;
                     mboIn = mo.GetMethodParameters("SetGateways");
                     mboIn["DefaultIPGateway"] = new string[] { ipEntry[gateWay] };
                     mboOut = mo.InvokeMethod("SetGateways", mboIn, null);
                     if (mboOut["ReturnValue"].ToString() != "0" && mboOut["ReturnValue"].ToString() != "1")
                         isRenew = false;
-                    await sw.WriteLineAsync("Gateway:\t" + ipEntry[gateWay] + "\tReturn:\t" + mboOut["ReturnValue"]);
+                    sw.WriteLine("Gateway:\t" + ipEntry[gateWay] + "\tReturn:\t" + mboOut["ReturnValue"]);
                     //Set DNS;
                     mboIn = mo.GetMethodParameters("SetDNSServerSearchOrder");
                     mboIn["DNSServerSearchOrder"] = new string[] { ipEntry[dNS] };
                     mboOut = mo.InvokeMethod("SetDNSServerSearchOrder", mboIn, null);
                     if (mboOut["ReturnValue"].ToString() != "0" && mboOut["ReturnValue"].ToString() != "1")
                         isRenew = false;
-                    await sw.WriteLineAsync("DNS:\t" + ipEntry[dNS] + "\tReturn:\t" + mboOut["ReturnValue"]);
+                    sw.WriteLine("DNS:\t" + ipEntry[dNS] + "\tReturn:\t" + mboOut["ReturnValue"]);
                     break;
                 }
             }
@@ -243,22 +243,22 @@ namespace SetIP
                 sw.WriteLine("SetNewIP(): " + e.ToString());
             }
         }
-        private async void UpdateResult()
+        private void UpdateResult()
         {
             DataTable dt = new DataTable("IP_RELATIONSHIP");
             //简单点，先直接调用SQL
-            string cmd = $"Update IP_RELATIONSHIP set RENEWED = {isRenew} where OLD_IP = \"{ipEntry[oldIP]}\"";
+            string cmd = "Update IP_RELATIONSHIP set RENEWED = " + isRenew + " where OLD_IP = \"" + ipEntry[oldIP] + "\"";
             try
             {
                 MySqlConnection msConn = new MySqlConnection(connStr);
-                await msConn.OpenAsync();
+                msConn.Open();
                 MySqlCommand msCmd = new MySqlCommand(cmd, msConn);
-                await sw.WriteLineAsync($"Update {msCmd.ExecuteNonQuery()} row(s)");
-                await msConn.CloseAsync();
+                sw.WriteLine($"Update {msCmd.ExecuteNonQuery()} row(s)");
+                msConn.Close();
             }
             catch (Exception e)
             {
-                await sw.WriteLineAsync("UpdateResult():\n" + e.ToString());
+                sw.WriteLine("UpdateResult():\n" + e.ToString());
             }
         }
     }
