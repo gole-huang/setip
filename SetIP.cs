@@ -3,29 +3,60 @@ using System.Collections.Generic;
 using System.Data;
 using System.IO;
 using System.Management;
-using NPOI.XSSF.UserModel;
+
+using MySqlConnector;
+
 using NPOI.SS.UserModel;
+using NPOI.XSSF.UserModel;
 
 namespace SetIP
 {
-    public class SetMyIP
+    public class MyIP
     {
-        const int ipAddr = 0;
-        const int subMask = 1;
-        const int gateWay = 2;
-        const int dNS = 3;
-        public ManagementObjectCollection getNetworkMoc()
+        private const int oldIP = 0;
+        private const int ipAddr = 1;
+        private const int subMask = 2;
+        private const int gateWay = 3;
+        private const int dNS = 4;
+        private string[] ipEntry;
+        private string cfgFile;
+        private StreamWriter sw;
+        public MyIP()
+        {
+            ipEntry = new string[5];
+            sw = new StreamWriter(Directory.GetCurrentDirectory() + "\\setIP.log");
+            if (File.Exists(Directory.GetCurrentDirectory() + "\\ip.xlsx"))
+            {
+                cfgFile = Directory.GetCurrentDirectory() + "\\ip.xlsx";
+                FindNetworkEntry(NPOItoDataTable());
+            }
+            else if (File.Exists(Directory.GetCurrentDirectory() + "\\dbcfg.cfg"))
+            {
+                cfgFile = Directory.GetCurrentDirectory() + "\\dbcfg.cfg";
+                FindNetworkEntry(MySQLtoDataTable());
+            }
+            SetNewIP();
+        }
+
+        public void showMember()
+        {
+            Console.WriteLine(cfgFile);
+            foreach (string s in ipEntry)
+                Console.WriteLine(s);
+        }
+        private ManagementObjectCollection getNetworkMoc()
         {
             /*
             "Cannot marshal 'parameter #3': Cannot marshal a string by-value with the [Out] attribute."
             Resolved by updating System.Management.dll to 6.0.0 preview version
             */
-            ManagementPath mp = new ManagementPath ("Win32_NetworkAdapterConfiguration") ;   //Win32_NetworkAdapterConfiguration
+            ManagementPath mp = new ManagementPath("Win32_NetworkAdapterConfiguration");
             ManagementClass mc = new ManagementClass(mp);
             return mc.GetInstances();
         }
-        public List<Array> getIP()
+        private List<Array> getIP()
         {
+            //获取IP项所有内容
             List<Array> lsAr = new List<Array>();
             Array ar;
             try
@@ -49,72 +80,52 @@ namespace SetIP
             }
             return lsAr;
         }
-        public string showIPAttr(int ipAttr)
+        public string showIPAttr(int ipAttrNum)
         {
+            //显示IP项里的具体项目（地址、子网、网关、DNS）
             try
             {
                 List<Array> lsAr = getIP();
-                if (lsAr.Count > ipAttr)
-                    return lsAr[ipAttr].GetValue(0).ToString();
+                if (lsAr.Count > ipAttrNum)
+                    return lsAr[ipAttrNum].GetValue(0).ToString();
                 else
                     return "No IP detected.";
             }
-            catch (Exception ex)
+            catch (Exception e)
             {
-                Console.WriteLine(ex.ToString());
-                return "Error";
+                sw.WriteLine("showIPAttr(): " + e.ToString());
+                return null;
             }
         }
-        public string[] findNewNetwork()
+        public void FindNetworkEntry(DataTable dt)
         {
-            return FindNetworkEntry(NPOItoDataTable());
-        }
-        public string[] FindNetworkEntry(DataTable dt)
-        {
-            string[] ipEntry = new string[4];
+            ipEntry[oldIP] = showIPAttr(oldIP);
             try
-            {                
-                DataRow[] dr = dt.Select($"OLD_IP='{showIPAttr(ipAddr)}'");    //选出OLD_IP为本机IP的行；
-                if (dr.Length != 1) return ipEntry; //结果不唯一，返回空值
+            {
+                if (dt.TableName == null) return;
+                DataRow[] dr = dt.Select($"OLD_IP='{ipEntry[oldIP]}'");    //选出OLD_IP为本机IP的行；
+                if (dr.Length != 1) return; //结果不唯一，返回空值
                 ipEntry[ipAddr] = dr[0]["NEW_IP"].ToString();
                 ipEntry[subMask] = dr[0]["NEW_MASK"].ToString();
-                ipEntry[gateWay] = dr[0]["NEW_GW"].ToString();
+                ipEntry[gateWay] = dr[0]["NEW_GATEWAY"].ToString();
                 ipEntry[dNS] = dr[0]["NEW_DNS"].ToString();
             }
-            catch (Exception ex)
+            catch (Exception e)
             {
-                Console.WriteLine(ex.ToString());
+                sw.WriteLine("FindNetworkEntry(): " + e.ToString());
             }
-            return ipEntry;
         }
-        /*OleDB not Supported by Framework 4.5.2
-        static string connStr = @"Provider=Microsoft.ACE.OLEDB.12.0;Data Source=" + Directory.GetCurrentDirectory() + "\\IP.xlsx;Extended Properties='Excel 12.0;HDR=Yes;IMEX=1;'";
-        public DataTable OleDBToDataTable()
+        private DataTable NPOItoDataTable()
         {
-            DataSet ds = new DataSet();
-            OleDbConnection dbConn = new OleDbConnection(connStr);
-            string cmdStr = "Select * from [Sheet1$] where OLD_IP = '" + showIPAttr(ipAddr) + "';";
-            try
-            {
-                dbConn.Open();
-                OleDbCommand dbCmd = new OleDbCommand(cmdStr, dbConn);
-                OleDbAdapter dbAdapter = new OleDbAdapter(cmdStr,dbConn);
-                dbAdapter.fill(ds);
-                dbConn.Close();
-            }
-            catch(Exception e) {Console.WriteLine(e.ToString());}
-            return ds.Tables[0];
-        }
-        */
-        public DataTable NPOItoDataTable()
-        { //Return IP Entry with NPOI
+            //从IP.xlsx原样回填DataTable；
             DataTable dt = new DataTable();
-            try
+
+            //using ( FileStream fs = new FileStream(Directory.GetCurrentDirectory() + "\\IP.xlsx", FileMode.Open, FileAccess.Read))
+            using (FileStream fs = new FileStream(cfgFile, FileMode.Open, FileAccess.Read))
             {
-                FileStream fs = new FileStream(Directory.GetCurrentDirectory() + "\\IP.xlsx", FileMode.Open, FileAccess.Read);
                 IWorkbook iWb = new XSSFWorkbook(fs);
                 ISheet iSheet = iWb.GetSheetAt(0);
-                IRow iR = iSheet.GetRow(iSheet.FirstRowNum);                
+                IRow iR = iSheet.GetRow(iSheet.FirstRowNum);
                 //DataTable头部
                 for (int i = 0; i < iR.LastCellNum; i++)
                 {
@@ -132,17 +143,63 @@ namespace SetIP
                     dt.Rows.Add(dr);
                 }
             }
-            catch (System.Exception e)
-            {
-                Console.WriteLine(e.ToString());
-                //throw;
-            }
             return dt;
         }
-        public void SetNewIP(string[] ipEntry)
+        private DataTable MySQLtoDataTable()
         {
-            StreamWriter sw = new StreamWriter(Directory.GetCurrentDirectory() + "\\setIP.log");
-            sw.WriteLine(DateTime.Now.ToLocalTime().ToString());
+            //从MySQL原样回填DataTable；
+            string connStr = null;
+            using (StreamReader sr = new StreamReader(cfgFile))
+            {
+                string[] connAttr = new string[5];
+                while ((connStr = sr.ReadLine()) != null)
+                {
+                    switch (connStr)
+                    {
+                        case "[Server]":
+                            connAttr[0] = sr.ReadLine();
+                            break;
+                        case "[PORT]":
+                            connAttr[1] = sr.ReadLine();
+                            break;
+                        case "[USERNAME]":
+                            connAttr[2] = sr.ReadLine();
+                            break;
+                        case "[PASSWORD]":
+                            connAttr[3] = sr.ReadLine();
+                            break;
+                        case "[DBNAME]":
+                            connAttr[4] = sr.ReadLine();
+                            break;
+                        default:
+                            Console.WriteLine("No Valid");
+                            break;
+                    }
+                }
+                connStr = "server=" + connAttr[0] + ";port=" + connAttr[1] + ";user=" + connAttr[2] + ";pwd=" + connAttr[3] + ";database=" + connAttr[4];
+                //Console.WriteLine(connStr);
+            }
+            string cmdStr = "Select OLD_IP , NEW_IP , NEW_MASK , NEW_GATEWAY , NEW_DNS from IP_RELATIONSHIP";
+            DataTable dt = new DataTable();
+            try
+            {
+                MySqlConnection msConn = new MySqlConnection(connStr);
+                MySqlDataAdapter msAdapter = new MySqlDataAdapter(cmdStr, msConn);
+                Console.WriteLine(msAdapter.Fill(dt));
+            }
+            catch (Exception e)
+            {
+                sw.WriteLine("MySQLtoDataTable(): " + e.ToString());
+            }
+            //msConn.Open();
+            //DataTable dt = msConn.GetSchema("Tables");
+            return dt;
+        }
+        public async void SetNewIP()
+        {
+            await sw.WriteLineAsync(DateTime.Now.ToLocalTime().ToString());
+            await sw.WriteLineAsync("From: " + cfgFile);
+            await sw.WriteLineAsync("IP: " + ipEntry[oldIP]);
             try
             {
                 ManagementBaseObject mboIn = null;
@@ -156,23 +213,23 @@ namespace SetIP
                     mboIn["IPAddress"] = new string[] { ipEntry[ipAddr] };
                     mboIn["SubnetMask"] = new string[] { ipEntry[subMask] };
                     mboOut = mo.InvokeMethod("EnableStatic", mboIn, null);
-                    sw.WriteLine("IP/Mask:\t" + ipEntry[ipAddr] + "/" + ipEntry[subMask] + "\tReturn:\t" + mboOut["ReturnValue"]);
+                    await sw.WriteLineAsync("IP/Mask:\t" + ipEntry[ipAddr] + "/" + ipEntry[subMask] + "\tReturn:\t" + mboOut["ReturnValue"]);
                     //Set Gateway;
                     mboIn = mo.GetMethodParameters("SetGateways");
                     mboIn["DefaultIPGateway"] = new string[] { ipEntry[gateWay] };
                     mboOut = mo.InvokeMethod("SetGateways", mboIn, null);
-                    sw.WriteLine("Gateway:\t" + ipEntry[gateWay] + "\tReturn:\t" + mboOut["ReturnValue"]);
+                    await sw.WriteLineAsync("Gateway:\t" + ipEntry[gateWay] + "\tReturn:\t" + mboOut["ReturnValue"]);
                     //Set DNS;
                     mboIn = mo.GetMethodParameters("SetDNSServerSearchOrder");
                     mboIn["DNSServerSearchOrder"] = new string[] { ipEntry[dNS] };
                     mboOut = mo.InvokeMethod("SetDNSServerSearchOrder", mboIn, null);
-                    sw.WriteLine("DNS:\t" + ipEntry[dNS] + "\tReturn:\t" + mboOut["ReturnValue"]);
+                    await sw.WriteLineAsync("DNS:\t" + ipEntry[dNS] + "\tReturn:\t" + mboOut["ReturnValue"]);
                     break;
                 }
             }
-            catch (Exception ex)
+            catch (Exception e)
             {
-                sw.WriteLine(ex.ToString());
+                sw.WriteLine("SetNewIP(): " + e.ToString());
             }
             sw.Close();
             sw.Dispose();
