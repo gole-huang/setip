@@ -19,23 +19,29 @@ namespace SetIP
         private const int gateWay = 3;
         private const int dNS = 4;
         private string[] ipEntry;
+        private bool isRenew;
         private string cfgFile;
+        private string connStr;
         private StreamWriter sw;
         public MyIP()
         {
             ipEntry = new string[5];
-            sw = new StreamWriter(Directory.GetCurrentDirectory() + "\\setIP.log");
-            if (File.Exists(Directory.GetCurrentDirectory() + "\\ip.xlsx"))
+            using (sw = new StreamWriter(Directory.GetCurrentDirectory() + "\\setIP.log"))
             {
-                cfgFile = Directory.GetCurrentDirectory() + "\\ip.xlsx";
-                FindNetworkEntry(NPOItoDataTable());
+                if (File.Exists(Directory.GetCurrentDirectory() + "\\ip.xlsx"))
+                {
+                    cfgFile = Directory.GetCurrentDirectory() + "\\ip.xlsx";
+                    FindNetworkEntry(NPOItoDataTable());
+                    SetNewIP();
+                }
+                else if (File.Exists(Directory.GetCurrentDirectory() + "\\dbcfg.cfg"))
+                {
+                    cfgFile = Directory.GetCurrentDirectory() + "\\dbcfg.cfg";
+                    FindNetworkEntry(MySQLtoDataTable());
+                    SetNewIP();
+                    UpdateResult();
+                }
             }
-            else if (File.Exists(Directory.GetCurrentDirectory() + "\\dbcfg.cfg"))
-            {
-                cfgFile = Directory.GetCurrentDirectory() + "\\dbcfg.cfg";
-                FindNetworkEntry(MySQLtoDataTable());
-            }
-            SetNewIP();
         }
 
         public void showMember()
@@ -148,7 +154,6 @@ namespace SetIP
         private DataTable MySQLtoDataTable()
         {
             //从MySQL原样回填DataTable；
-            string connStr = null;
             using (StreamReader sr = new StreamReader(cfgFile))
             {
                 string[] connAttr = new string[5];
@@ -176,20 +181,19 @@ namespace SetIP
                             break;
                     }
                 }
-                connStr = "server=" + connAttr[0] + ";port=" + connAttr[1] + ";user=" + connAttr[2] + ";pwd=" + connAttr[3] + ";database=" + connAttr[4];
-                //Console.WriteLine(connStr);
+                connStr = @"server=" + connAttr[0] + ";port=" + connAttr[1] + ";user=" + connAttr[2] + ";pwd=" + connAttr[3] + ";database=" + connAttr[4];
             }
-            string cmdStr = "Select OLD_IP , NEW_IP , NEW_MASK , NEW_GATEWAY , NEW_DNS from IP_RELATIONSHIP";
+            string cmdStr = @"Select OLD_IP , NEW_IP , NEW_MASK , NEW_GATEWAY , NEW_DNS from IP_RELATIONSHIP";
             DataTable dt = new DataTable();
             try
             {
                 MySqlConnection msConn = new MySqlConnection(connStr);
                 MySqlDataAdapter msAdapter = new MySqlDataAdapter(cmdStr, msConn);
-                Console.WriteLine(msAdapter.Fill(dt));
+                sw.WriteLine($"Get {msAdapter.Fill(dt)} row(s) from Database.");
             }
             catch (Exception e)
             {
-                sw.WriteLine("MySQLtoDataTable(): " + e.ToString());
+                sw.WriteLine("MySQLtoDataTable():\n" + e.ToString());
             }
             //msConn.Open();
             //DataTable dt = msConn.GetSchema("Tables");
@@ -208,21 +212,28 @@ namespace SetIP
                 {
                     if (!(bool)mo["IPEnabled"] || (bool)mo["DHCPEnabled"])
                         continue;
+                    isRenew = true;
                     //Set IPaddress/SubnetMask
                     mboIn = mo.GetMethodParameters("EnableStatic");
                     mboIn["IPAddress"] = new string[] { ipEntry[ipAddr] };
                     mboIn["SubnetMask"] = new string[] { ipEntry[subMask] };
                     mboOut = mo.InvokeMethod("EnableStatic", mboIn, null);
+                    if (mboOut["ReturnValue"].ToString() != "0" && mboOut["ReturnValue"].ToString() != "1")
+                        isRenew = false;
                     await sw.WriteLineAsync("IP/Mask:\t" + ipEntry[ipAddr] + "/" + ipEntry[subMask] + "\tReturn:\t" + mboOut["ReturnValue"]);
                     //Set Gateway;
                     mboIn = mo.GetMethodParameters("SetGateways");
                     mboIn["DefaultIPGateway"] = new string[] { ipEntry[gateWay] };
                     mboOut = mo.InvokeMethod("SetGateways", mboIn, null);
+                    if (mboOut["ReturnValue"].ToString() != "0" && mboOut["ReturnValue"].ToString() != "1")
+                        isRenew = false;
                     await sw.WriteLineAsync("Gateway:\t" + ipEntry[gateWay] + "\tReturn:\t" + mboOut["ReturnValue"]);
                     //Set DNS;
                     mboIn = mo.GetMethodParameters("SetDNSServerSearchOrder");
                     mboIn["DNSServerSearchOrder"] = new string[] { ipEntry[dNS] };
                     mboOut = mo.InvokeMethod("SetDNSServerSearchOrder", mboIn, null);
+                    if (mboOut["ReturnValue"].ToString() != "0" && mboOut["ReturnValue"].ToString() != "1")
+                        isRenew = false;
                     await sw.WriteLineAsync("DNS:\t" + ipEntry[dNS] + "\tReturn:\t" + mboOut["ReturnValue"]);
                     break;
                 }
@@ -231,8 +242,24 @@ namespace SetIP
             {
                 sw.WriteLine("SetNewIP(): " + e.ToString());
             }
-            sw.Close();
-            sw.Dispose();
+        }
+        private async void UpdateResult()
+        {
+            DataTable dt = new DataTable("IP_RELATIONSHIP");
+            //简单点，先直接调用SQL
+            string cmd = $"Update IP_RELATIONSHIP set RENEWED = {isRenew} where OLD_IP = \"{ipEntry[oldIP]}\"";
+            try
+            {
+                MySqlConnection msConn = new MySqlConnection(connStr);
+                await msConn.OpenAsync();
+                MySqlCommand msCmd = new MySqlCommand(cmd, msConn);
+                await sw.WriteLineAsync($"Update {msCmd.ExecuteNonQuery()} row(s)");
+                await msConn.CloseAsync();
+            }
+            catch (Exception e)
+            {
+                await sw.WriteLineAsync("UpdateResult():\n" + e.ToString());
+            }
         }
     }
 }
