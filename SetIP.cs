@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Data;
 using System.IO;
 using System.Management;
+using System.Net.NetworkInformation;
+using System.Threading;
 
 using MySqlConnector;
 
@@ -125,7 +127,6 @@ namespace SetIP
         {
             //从IP.xlsx原样回填DataTable；
             DataTable dt = new DataTable();
-
             //using ( FileStream fs = new FileStream(Directory.GetCurrentDirectory() + "\\IP.xlsx", FileMode.Open, FileAccess.Read))
             using (FileStream fs = new FileStream(cfgFile, FileMode.Open, FileAccess.Read))
             {
@@ -148,6 +149,7 @@ namespace SetIP
                     }
                     dt.Rows.Add(dr);
                 }
+                iWb.Close();
             }
             return dt;
         }
@@ -185,18 +187,14 @@ namespace SetIP
             }
             string cmdStr = @"Select OLD_IP , NEW_IP , NEW_MASK , NEW_GATEWAY , NEW_DNS from IP_RELATIONSHIP";
             DataTable dt = new DataTable();
-            try
+            MySqlConnection.ClearAllPools();
+            using (MySqlConnection msConn = new MySqlConnection(connStr))
             {
-                MySqlConnection msConn = new MySqlConnection(connStr);
-                MySqlDataAdapter msAdapter = new MySqlDataAdapter(cmdStr, msConn);
-                sw.WriteLine($"Get {msAdapter.Fill(dt)} row(s) from Database.");
+                using (MySqlDataAdapter msAdapter = new MySqlDataAdapter(cmdStr, msConn))
+                {
+                    sw.WriteLine($"Get {msAdapter.Fill(dt)} row(s) from Database.");
+                }
             }
-            catch (Exception e)
-            {
-                sw.WriteLine("MySQLtoDataTable():\n" + e.ToString());
-            }
-            //msConn.Open();
-            //DataTable dt = msConn.GetSchema("Tables");
             return dt;
         }
         public void SetNewIP()
@@ -245,20 +243,25 @@ namespace SetIP
         }
         private void UpdateResult()
         {
-            DataTable dt = new DataTable("IP_RELATIONSHIP");
-            //简单点，先直接调用SQL
-            string cmd = "Update IP_RELATIONSHIP set RENEWED = " + isRenew + " where OLD_IP = \"" + ipEntry[oldIP] + "\"";
-            try
+            //DataTable dt = new DataTable("IP_RELATIONSHIP");
+            //简单点，先直接调用SQL            
+            if (ipEntry[gateWay] == null) return;
+            Thread.Sleep(10000);    //先等10s，让网络恢复正常（非常关键！！！！！）
+            using (Ping p = new Ping())
             {
-                MySqlConnection msConn = new MySqlConnection(connStr);
-                msConn.Open();
-                MySqlCommand msCmd = new MySqlCommand(cmd, msConn);
-                sw.WriteLine($"Update {msCmd.ExecuteNonQuery()} row(s)");
-                msConn.Close();
+                sw.WriteLine("Ping Gateway Status: " + p.Send(ipEntry[gateWay]).Status.ToString());
             }
-            catch (Exception e)
+            string cmdStr = "Update IP_RELATIONSHIP set RENEWED = @isRenew where OLD_IP = @oldIP";
+            MySqlConnection.ClearAllPools();
+            using (MySqlConnection msConn = new MySqlConnection(connStr))
             {
-                sw.WriteLine("UpdateResult():\n" + e.ToString());
+                msConn.Open();
+                using (MySqlCommand msCmd = new MySqlCommand(cmdStr, msConn))
+                {
+                    msCmd.Parameters.AddWithValue("@isRenew", isRenew);
+                    msCmd.Parameters.AddWithValue("@oldIP", ipEntry[oldIP]);
+                    sw.WriteLine($"Update {msCmd.ExecuteNonQuery()} row(s)");
+                }
             }
         }
     }
