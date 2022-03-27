@@ -39,7 +39,7 @@ Gole Huang
 
 ## License
 
-This project is licensed under the [CC0 1.0 Universal](LICENSE.md)
+This project is licensed under the [MIT](LICENSE.md)
 
 ## Acknowledgments
 
