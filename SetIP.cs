@@ -35,12 +35,15 @@ namespace SetIP
                     cfgFile = Directory.GetCurrentDirectory() + "\\ip.xlsx";
                     FindNetworkEntry(NPOItoDataTable());
                     SetNewIP();
+                    Thread.Sleep(10000);    //先等10s，让网络恢复正常（非常关键！！！！！）
+                    UpdateResult();
                 }
                 else if (File.Exists(Directory.GetCurrentDirectory() + "\\dbcfg.cfg"))
                 {
                     cfgFile = Directory.GetCurrentDirectory() + "\\dbcfg.cfg";
                     FindNetworkEntry(MySQLtoDataTable());
                     SetNewIP();
+                    Thread.Sleep(10000);    //先等10s，让网络恢复正常（非常关键！！！！！）
                     UpdateResult();
                 }
             }
@@ -115,7 +118,7 @@ namespace SetIP
                 if (dr.Length != 1) return; //结果不唯一，返回空值
                 ipEntry[ipAddr] = dr[0]["NEW_IP"].ToString();
                 ipEntry[subMask] = dr[0]["NEW_MASK"].ToString();
-                ipEntry[gateWay] = dr[0]["NEW_GATEWAY"].ToString();
+                ipEntry[gateWay] = dr[0]["NEW_GW"].ToString();
                 ipEntry[dNS] = dr[0]["NEW_DNS"].ToString();
             }
             catch (Exception e)
@@ -243,25 +246,38 @@ namespace SetIP
         }
         private void UpdateResult()
         {
-            //DataTable dt = new DataTable("IP_RELATIONSHIP");
             //简单点，先直接调用SQL            
             if (ipEntry[gateWay] == null) return;
-            Thread.Sleep(10000);    //先等10s，让网络恢复正常（非常关键！！！！！）
             using (Ping p = new Ping())
             {
-                sw.WriteLine("Ping Gateway Status: " + p.Send(ipEntry[gateWay]).Status.ToString());
+                while (true)
+                {
+                    PingReply pr = p.Send(ipEntry[gateWay]);
+                    if (pr.Status == IPStatus.Success)
+                    {
+                        break;
+                    }
+                    Thread.Sleep(1000);
+                }
             }
             string cmdStr = "Update IP_RELATIONSHIP set RENEWED = @isRenew where OLD_IP = @oldIP";
             MySqlConnection.ClearAllPools();
-            using (MySqlConnection msConn = new MySqlConnection(connStr))
+            try
             {
-                msConn.Open();
-                using (MySqlCommand msCmd = new MySqlCommand(cmdStr, msConn))
+                using (MySqlConnection msConn = new MySqlConnection(connStr))
                 {
-                    msCmd.Parameters.AddWithValue("@isRenew", isRenew);
-                    msCmd.Parameters.AddWithValue("@oldIP", ipEntry[oldIP]);
-                    sw.WriteLine($"Update {msCmd.ExecuteNonQuery()} row(s)");
+                    msConn.Open();
+                    using (MySqlCommand msCmd = new MySqlCommand(cmdStr, msConn))
+                    {
+                        msCmd.Parameters.AddWithValue("@isRenew", isRenew);
+                        msCmd.Parameters.AddWithValue("@oldIP", ipEntry[oldIP]);
+                        sw.WriteLine($"Update {msCmd.ExecuteNonQuery()} row(s)");
+                    }
                 }
+            }
+            catch (Exception e)
+            {
+                sw.WriteLine("UpdateResult(): " + e.ToString());
             }
         }
     }
