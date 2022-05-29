@@ -22,7 +22,8 @@ namespace SetIP
         private const int dNS = 4;
         private string[] ipEntry;
         private bool isRenew;
-        private string cfgFile;
+        private string cfgXLSX;
+        private string cfgDB;
         private string connStr;
         private StreamWriter sw;
         public MyIP()
@@ -32,26 +33,72 @@ namespace SetIP
             {
                 if (File.Exists(Directory.GetCurrentDirectory() + "\\ip.xlsx"))
                 {
-                    cfgFile = Directory.GetCurrentDirectory() + "\\ip.xlsx";
+                    cfgXLSX = Directory.GetCurrentDirectory() + "\\ip.xlsx";
+                }
+                if (File.Exists(Directory.GetCurrentDirectory() + "\\dbcfg.cfg"))
+                {
+                    cfgDB = Directory.GetCurrentDirectory() + "\\dbcfg.cfg";
+                    using (StreamReader sr = new StreamReader(cfgDB))
+                    {
+                        string[] connAttr = new string[5];
+                        while ((connStr = sr.ReadLine()) != null)
+                        {
+                            switch (connStr)
+                            {
+                                case "[Server]":
+                                    connAttr[0] = sr.ReadLine();
+                                    break;
+                                case "[PORT]":
+                                    connAttr[1] = sr.ReadLine();
+                                    break;
+                                case "[USERNAME]":
+                                    connAttr[2] = sr.ReadLine();
+                                    break;
+                                case "[PASSWORD]":
+                                    connAttr[3] = sr.ReadLine();
+                                    break;
+                                case "[DBNAME]":
+                                    connAttr[4] = sr.ReadLine();
+                                    break;
+                                default:
+                                    Console.WriteLine("No Valid");
+                                    break;
+                            }
+                        }
+                        connStr = @"server=" + connAttr[0] + ";port=" + connAttr[1] + ";user=" + connAttr[2] + ";pwd=" + connAttr[3] + ";database=" + connAttr[4];
+                    }
+                }
+                if (cfgXLSX != null)
+                {
                     FindNetworkEntry(NPOItoDataTable());
                     SetNewIP();
-                    Thread.Sleep(10000);    //先等10s，让网络恢复正常（非常关键！！！！！）
-                    UpdateResult();
+                    if (isRenew)
+                    {
+                        Thread.Sleep(10000);    //先等10s，让网络恢复正常（非常关键！！！！！）
+                        UpdateResult();
+                    }
                 }
-                else if (File.Exists(Directory.GetCurrentDirectory() + "\\dbcfg.cfg"))
+                else if (cfgDB != null)
                 {
-                    cfgFile = Directory.GetCurrentDirectory() + "\\dbcfg.cfg";
                     FindNetworkEntry(MySQLtoDataTable());
                     SetNewIP();
-                    Thread.Sleep(10000);    //先等10s，让网络恢复正常（非常关键！！！！！）
-                    UpdateResult();
+                    if (isRenew)
+                    {
+                        Thread.Sleep(10000);    //先等10s，让网络恢复正常（非常关键！！！！！）
+                        UpdateResult();
+                    }
+                }
+                else
+                {
+                    sw.WriteLine("No config file found!");
+                    sw.Flush();
+                    return;
                 }
             }
         }
-
         public void showMember()
         {
-            Console.WriteLine(cfgFile);
+            Console.WriteLine(cfgXLSX != null ? cfgXLSX : cfgDB);
             foreach (string s in ipEntry)
                 Console.WriteLine(s);
         }
@@ -68,28 +115,32 @@ namespace SetIP
         private List<Array> getIP()
         {
             //获取IP项所有内容
-            List<Array> lsAr = new List<Array>();
-            Array ar;
             try
             {
                 foreach (ManagementObject mo in getNetworkMoc())
                 {
-                    if (!(bool)mo["IPEnabled"] || (bool)mo["DHCPEnabled"]) continue;
-                    ar = (Array)(mo.Properties["IPAddress"].Value);
-                    lsAr.Add(ar);
-                    ar = (Array)(mo.Properties["IPSubnet"].Value);
-                    lsAr.Add(ar);
-                    ar = (Array)(mo.Properties["DefaultIPGateway"].Value);
-                    lsAr.Add(ar);
-                    ar = (Array)(mo.Properties["DNSServerSearchOrder"].Value);
-                    lsAr.Add(ar);
+                    if ((bool)mo["IPEnabled"] && !(bool)mo["DHCPEnabled"])
+                    {
+                        List<Array> lsAr = new List<Array>();
+                        Array ipAr = (Array)(mo.Properties["IPAddress"].Value);
+                        if (ipAr == null) continue;
+                        lsAr.Add(ipAr);
+                        Array subnetAr = (Array)(mo.Properties["IPSubnet"].Value);
+                        lsAr.Add(subnetAr);
+                        Array gwAr = (Array)(mo.Properties["DefaultIPGateway"].Value);
+                        if (gwAr == null) continue;
+                        lsAr.Add(gwAr);
+                        Array dnsAr = (Array)(mo.Properties["DNSServerSearchOrder"].Value);
+                        lsAr.Add(dnsAr);
+                        return lsAr;
+                    }
                 }
             }
             catch (Exception ex)
             {
                 Console.WriteLine(ex.ToString());
             }
-            return lsAr;
+            return null;
         }
         public string showIPAttr(int ipAttrNum)
         {
@@ -131,7 +182,7 @@ namespace SetIP
             //从IP.xlsx原样回填DataTable；
             DataTable dt = new DataTable();
             //using ( FileStream fs = new FileStream(Directory.GetCurrentDirectory() + "\\IP.xlsx", FileMode.Open, FileAccess.Read))
-            using (FileStream fs = new FileStream(cfgFile, FileMode.Open, FileAccess.Read))
+            using (FileStream fs = new FileStream(cfgXLSX, FileMode.Open, FileAccess.Read))
             {
                 IWorkbook iWb = new XSSFWorkbook(fs);
                 ISheet iSheet = iWb.GetSheetAt(0);
@@ -159,35 +210,7 @@ namespace SetIP
         private DataTable MySQLtoDataTable()
         {
             //从MySQL原样回填DataTable；
-            using (StreamReader sr = new StreamReader(cfgFile))
-            {
-                string[] connAttr = new string[5];
-                while ((connStr = sr.ReadLine()) != null)
-                {
-                    switch (connStr)
-                    {
-                        case "[Server]":
-                            connAttr[0] = sr.ReadLine();
-                            break;
-                        case "[PORT]":
-                            connAttr[1] = sr.ReadLine();
-                            break;
-                        case "[USERNAME]":
-                            connAttr[2] = sr.ReadLine();
-                            break;
-                        case "[PASSWORD]":
-                            connAttr[3] = sr.ReadLine();
-                            break;
-                        case "[DBNAME]":
-                            connAttr[4] = sr.ReadLine();
-                            break;
-                        default:
-                            Console.WriteLine("No Valid");
-                            break;
-                    }
-                }
-                connStr = @"server=" + connAttr[0] + ";port=" + connAttr[1] + ";user=" + connAttr[2] + ";pwd=" + connAttr[3] + ";database=" + connAttr[4];
-            }
+
             string cmdStr = @"Select OLD_IP , NEW_IP , NEW_MASK , NEW_GATEWAY , NEW_DNS from IP_RELATIONSHIP";
             DataTable dt = new DataTable();
             MySqlConnection.ClearAllPools();
@@ -203,7 +226,7 @@ namespace SetIP
         public void SetNewIP()
         {
             sw.WriteLine(DateTime.Now.ToLocalTime().ToString());
-            sw.WriteLine("From: " + cfgFile);
+            sw.WriteLine("From: " + cfgXLSX != null ? cfgXLSX : cfgDB);
             sw.WriteLine("IP: " + ipEntry[oldIP]);
             try
             {
@@ -211,32 +234,41 @@ namespace SetIP
                 ManagementBaseObject mboOut = null;
                 foreach (ManagementObject mo in getNetworkMoc())
                 {
-                    if (!(bool)mo["IPEnabled"] || (bool)mo["DHCPEnabled"])
+                    //若网卡状态为禁用，或者启用了DHCP，或者没有设置网关，则跳过;
+                    if (!(bool)mo["IPEnabled"] || (bool)mo["DHCPEnabled"] || (Array)(mo.Properties["DefaultIPGateway"].Value) == null)
                         continue;
-                    isRenew = true;
                     //Set IPaddress/SubnetMask
                     mboIn = mo.GetMethodParameters("EnableStatic");
                     mboIn["IPAddress"] = new string[] { ipEntry[ipAddr] };
                     mboIn["SubnetMask"] = new string[] { ipEntry[subMask] };
                     mboOut = mo.InvokeMethod("EnableStatic", mboIn, null);
                     if (mboOut["ReturnValue"].ToString() != "0" && mboOut["ReturnValue"].ToString() != "1")
+                    {
                         isRenew = false;
-                    sw.WriteLine("IP/Mask:\t" + ipEntry[ipAddr] + "/" + ipEntry[subMask] + "\tReturn:\t" + mboOut["ReturnValue"]);
+                        sw.WriteLine("IP/Mask:\t" + ipEntry[ipAddr] + "/" + ipEntry[subMask] + "\tReturn:\t" + mboOut["ReturnValue"]);
+                        break;
+                    }
                     //Set Gateway;
                     mboIn = mo.GetMethodParameters("SetGateways");
                     mboIn["DefaultIPGateway"] = new string[] { ipEntry[gateWay] };
                     mboOut = mo.InvokeMethod("SetGateways", mboIn, null);
                     if (mboOut["ReturnValue"].ToString() != "0" && mboOut["ReturnValue"].ToString() != "1")
+                    {
                         isRenew = false;
-                    sw.WriteLine("Gateway:\t" + ipEntry[gateWay] + "\tReturn:\t" + mboOut["ReturnValue"]);
+                        sw.WriteLine("Gateway:\t" + ipEntry[gateWay] + "\tReturn:\t" + mboOut["ReturnValue"]);
+                        break;
+                    }
                     //Set DNS;
                     mboIn = mo.GetMethodParameters("SetDNSServerSearchOrder");
                     mboIn["DNSServerSearchOrder"] = new string[] { ipEntry[dNS] };
                     mboOut = mo.InvokeMethod("SetDNSServerSearchOrder", mboIn, null);
                     if (mboOut["ReturnValue"].ToString() != "0" && mboOut["ReturnValue"].ToString() != "1")
+                    {
                         isRenew = false;
-                    sw.WriteLine("DNS:\t" + ipEntry[dNS] + "\tReturn:\t" + mboOut["ReturnValue"]);
-                    break;
+                        sw.WriteLine("DNS:\t" + ipEntry[dNS] + "\tReturn:\t" + mboOut["ReturnValue"]);
+                        break;
+                    }
+                    isRenew = true;
                 }
             }
             catch (Exception e)
@@ -247,7 +279,11 @@ namespace SetIP
         private void UpdateResult()
         {
             //简单点，先直接调用SQL            
-            if (ipEntry[gateWay] == null) return;
+            if (cfgDB == null)
+            {
+                sw.WriteLine("UpdateResult(): No Database Configured.");
+                return;
+            }
             using (Ping p = new Ping())
             {
                 while (true)
@@ -260,7 +296,7 @@ namespace SetIP
                     Thread.Sleep(1000);
                 }
             }
-            string cmdStr = "Update IP_RELATIONSHIP set RENEWED = @isRenew where OLD_IP = @oldIP";
+            string cmdStr = "Update IP_RELATIONSHIP set IS_RENEW = @isRenew where OLD_IP = @oldIP";
             MySqlConnection.ClearAllPools();
             try
             {
