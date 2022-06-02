@@ -25,6 +25,7 @@ namespace SetIP
         private string cfgXLSX;
         private string cfgDB;
         private string connStr;
+        private string mboStr;
         private StreamWriter sw;
         public MyIP()
         {
@@ -242,30 +243,36 @@ namespace SetIP
                     mboIn["IPAddress"] = new string[] { ipEntry[ipAddr] };
                     mboIn["SubnetMask"] = new string[] { ipEntry[subMask] };
                     mboOut = mo.InvokeMethod("EnableStatic", mboIn, null);
-                    if (mboOut["ReturnValue"].ToString() != "0" && mboOut["ReturnValue"].ToString() != "1")
+                    mboStr = mboOut["ReturnValue"].ToString();
+                    if (Convert.ToInt32(mboStr) > 1)
                     {
                         isRenew = false;
-                        sw.WriteLine("IP/Mask:\t" + ipEntry[ipAddr] + "/" + ipEntry[subMask] + "\tReturn:\t" + mboOut["ReturnValue"]);
+                        mboStr = "IP: " + ipEntry[ipAddr] + "\t/Mask: " + ipEntry[subMask] + "\tCode: " + mboStr;
+                        sw.WriteLine(mboStr);
                         break;
                     }
                     //Set Gateway;
                     mboIn = mo.GetMethodParameters("SetGateways");
                     mboIn["DefaultIPGateway"] = new string[] { ipEntry[gateWay] };
                     mboOut = mo.InvokeMethod("SetGateways", mboIn, null);
-                    if (mboOut["ReturnValue"].ToString() != "0" && mboOut["ReturnValue"].ToString() != "1")
+                    mboStr = mboOut["ReturnValue"].ToString();
+                    if (Convert.ToInt32(mboStr) > 1)
                     {
                         isRenew = false;
-                        sw.WriteLine("Gateway:\t" + ipEntry[gateWay] + "\tReturn:\t" + mboOut["ReturnValue"]);
+                        mboStr = "Gateway: " + ipEntry[gateWay] + "\tCode: " + mboStr;
+                        sw.WriteLine(mboStr);
                         break;
                     }
                     //Set DNS;
                     mboIn = mo.GetMethodParameters("SetDNSServerSearchOrder");
                     mboIn["DNSServerSearchOrder"] = new string[] { ipEntry[dNS] };
                     mboOut = mo.InvokeMethod("SetDNSServerSearchOrder", mboIn, null);
-                    if (mboOut["ReturnValue"].ToString() != "0" && mboOut["ReturnValue"].ToString() != "1")
+                    mboStr = mboOut["ReturnValue"].ToString();
+                    if (Convert.ToInt32(mboStr) > 1)
                     {
                         isRenew = false;
-                        sw.WriteLine("DNS:\t" + ipEntry[dNS] + "\tReturn:\t" + mboOut["ReturnValue"]);
+                        mboStr = "DNS: " + ipEntry[dNS] + "\tcode: " + mboStr;
+                        sw.WriteLine(mboStr);
                         break;
                     }
                     isRenew = true;
@@ -296,7 +303,7 @@ namespace SetIP
                     Thread.Sleep(1000);
                 }
             }
-            string cmdStr = "Update IP_RELATIONSHIP set IS_RENEW = @isRenew where OLD_IP = @oldIP";
+            string cmdStr = @"Update IP_RELATIONSHIP set IS_RENEW = @isRenew , COMMENT = @comment where OLD_IP = @oldIP";
             MySqlConnection.ClearAllPools();
             try
             {
@@ -306,6 +313,7 @@ namespace SetIP
                     using (MySqlCommand msCmd = new MySqlCommand(cmdStr, msConn))
                     {
                         msCmd.Parameters.AddWithValue("@isRenew", isRenew);
+                        msCmd.Parameters.AddWithValue("@comment", mboStr);
                         msCmd.Parameters.AddWithValue("@oldIP", ipEntry[oldIP]);
                         sw.WriteLine($"Update {msCmd.ExecuteNonQuery()} row(s)");
                     }
