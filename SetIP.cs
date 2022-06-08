@@ -212,9 +212,8 @@ namespace SetIP
         {
             //从MySQL原样回填DataTable；
 
-            string cmdStr = @"Select OLD_IP , NEW_IP , NEW_MASK , NEW_GATEWAY , NEW_DNS from IP_RELATIONSHIP";
+            string cmdStr = @"Select OLD_IP , NEW_IP , NEW_MASK , NEW_GW , NEW_DNS from IP_RELATIONSHIP";
             DataTable dt = new DataTable();
-            MySqlConnection.ClearAllPools();
             using (MySqlConnection msConn = new MySqlConnection(connStr))
             {
                 using (MySqlDataAdapter msAdapter = new MySqlDataAdapter(cmdStr, msConn))
@@ -222,6 +221,7 @@ namespace SetIP
                     sw.WriteLine($"Get {msAdapter.Fill(dt)} row(s) from Database.");
                 }
             }
+            MySqlConnection.ClearAllPools();
             return dt;
         }
         public void SetNewIP()
@@ -304,7 +304,6 @@ namespace SetIP
                 }
             }
             string cmdStr = @"Update IP_RELATIONSHIP set IS_RENEW = @isRenew , COMMENT = @comment where OLD_IP = @oldIP";
-            MySqlConnection.ClearAllPools();
             try
             {
                 using (MySqlConnection msConn = new MySqlConnection(connStr))
@@ -318,6 +317,7 @@ namespace SetIP
                         sw.WriteLine($"Update {msCmd.ExecuteNonQuery()} row(s)");
                     }
                 }
+                MySqlConnection.ClearAllPools();
             }
             catch (Exception e)
             {
